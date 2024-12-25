@@ -1,5 +1,23 @@
 #!/bin/ash
 
+# Function to get the interface name based on device number
+get_interface() {
+    local device_num=$1
+    local radio="radio$device_num"
+    local phy=$(uci get wireless.$radio.device)
+    if [ -z "$phy" ]; then
+        echo "Radio $radio not found in UCI configuration."
+        exit 1
+    fi
+    local interfaces=$(iw dev | grep "Interface" | grep "$phy" | awk '{print $2}')
+    if [ -z "$interfaces" ]; then
+        echo "No interfaces found for phy $phy."
+        exit 1
+    fi
+    local interface=$(echo "$interfaces" | head -n 1)
+    echo "$interface"
+}
+
 # Function to switch channel
 switch_channel() {
     local channel=$1
@@ -15,35 +33,25 @@ switch_channel() {
 # Validate arguments
 if [ $# -lt 3 ]; then
     echo "Usage: dfs-checker.sh [device] [channel] [fallback_channel]"
-    echo "  device:           Numeric (e.g., 1 corresponds to phy0-ap1)"
+    echo "  device:           Numeric (e.g., 1 corresponds to radio1)"
     echo "  channel:          Main DFS channel to be used"
     echo "  fallback_channel: Secondary channel to be used if main channel is blocked due to DFS detection"
     exit 1
 fi
 
-# Mapping of device numbers to phy interfaces
-declare -A radio_to_phy
-radio_to_phy[0]="phy1"
-radio_to_phy[1]="phy0"
-
 device_num=$1
 channel=$2
 fallbackChannel=$3
 
-# Determine the phy interface based on device number
-phy_interface=${radio_to_phy[$device_num]}
-
-# Set the interface name
-interface="${phy_interface}-ap${device_num}"
-
-# Determine the radio configuration variable
-radio="wireless.radio${device_num}.channel"
+interface=$(get_interface "$device_num")
 
 # Check if the interface exists
-if ! iw dev "$interface" info >/dev/null 2>&1; then
-    echo "Interface $interface does not exist."
+if [ -z "$interface" ]; then
+    echo "No interface found for device number $device_num."
     exit 1
 fi
+
+radio="wireless.radio$device_num.channel"
 
 logger -s -t "DFS-checker" -p "user.warn" "DFS-checker has started. Interface: $interface, channel: $channel, fallback channel: $fallbackChannel"
 
