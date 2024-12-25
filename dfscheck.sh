@@ -4,24 +4,22 @@
 get_interface() {
     local device_num=$1
     local radio="radio$device_num"
-    local phy=$(uci get wireless.$radio.device)
+    local phy=$(uci get wireless.$radio.device 2>/dev/null)
     if [ -z "$phy" ]; then
-        echo "Radio $radio not found in UCI configuration."
+        phy="phy$device_num"
+    fi
+    local interface=$(iw dev | grep -A 1 "$phy" | grep Interface | awk '{print $2}')
+    if [ -z "$interface" ]; then
+        echo "No interface found for PHY $phy."
         exit 1
     fi
-    local interfaces=$(iw dev | grep "Interface" | grep "$phy" | awk '{print $2}')
-    if [ -z "$interfaces" ]; then
-        echo "No interfaces found for phy $phy."
-        exit 1
-    fi
-    local interface=$(echo "$interfaces" | head -n 1)
     echo "$interface"
 }
 
 # Function to switch channel
 switch_channel() {
     local channel=$1
-    uci set "$radio=$channel"
+    uci set "wireless.radio$device_num.channel=$channel"
     uci commit
     if wifi reload; then
         logger -s -t "DFS-checker" -p "user.info" "Successfully switched to channel $channel"
@@ -33,7 +31,7 @@ switch_channel() {
 # Validate arguments
 if [ $# -lt 3 ]; then
     echo "Usage: dfs-checker.sh [device] [channel] [fallback_channel]"
-    echo "  device:           Numeric (e.g., 1 corresponds to radio1)"
+    echo "  device:           Numeric (e.g., 0 corresponds to radio0)"
     echo "  channel:          Main DFS channel to be used"
     echo "  fallback_channel: Secondary channel to be used if main channel is blocked due to DFS detection"
     exit 1
@@ -44,14 +42,6 @@ channel=$2
 fallbackChannel=$3
 
 interface=$(get_interface "$device_num")
-
-# Check if the interface exists
-if [ -z "$interface" ]; then
-    echo "No interface found for device number $device_num."
-    exit 1
-fi
-
-radio="wireless.radio$device_num.channel"
 
 logger -s -t "DFS-checker" -p "user.warn" "DFS-checker has started. Interface: $interface, channel: $channel, fallback channel: $fallbackChannel"
 
