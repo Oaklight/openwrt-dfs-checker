@@ -1,14 +1,25 @@
 #!/bin/ash
 
-# Function to get the interface name based on device number
+# Function to get the interface name based on device number and ap_index
 get_interface() {
     local device_num=$1
+    local ap_index=${2:-1} # default to 1
     local radio="radio$device_num"
     local phy=$(uci get wireless.$radio.device 2>/dev/null)
     if [ -z "$phy" ]; then
         phy="phy$device_num"
     fi
-    local interface=$(iw dev | grep -A 1 "$phy" | grep Interface | awk '{print $2}')
+    local interfaces=$(iw dev | grep -A 1 "$phy" | grep Interface | awk '{print $2}' | sort -t '-' -k3,3n)
+    if [ -z "$interfaces" ]; then
+        echo "No interfaces found for PHY $phy."
+        exit 1
+    fi
+    local num_interfaces=$(echo "$interfaces" | wc -l)
+    if [ $ap_index -ge $num_interfaces ]; then
+        ap_index=0
+        logger -s -t "DFS-checker" -p "user.warn" "Specified ap_index $ap_index out of range, using default index 0."
+    fi
+    local interface=$(echo "$interfaces" | sed -n "$((ap_index + 1))p")
     if [ -z "$interface" ]; then
         echo "No interface found for PHY $phy."
         exit 1
@@ -30,18 +41,20 @@ switch_channel() {
 
 # Validate arguments
 if [ $# -lt 3 ]; then
-    echo "Usage: dfs-checker.sh [device] [channel] [fallback_channel]"
+    echo "Usage: dfs-checker.sh [device] [channel] [fallback_channel] [ap_index]"
     echo "  device:           Numeric (e.g., 0 corresponds to radio0)"
     echo "  channel:          Main DFS channel to be used"
     echo "  fallback_channel: Secondary channel to be used if main channel is blocked due to DFS detection"
+    echo "  ap_index:         Index of the AP interface (default: 1)"
     exit 1
 fi
 
 device_num=$1
 channel=$2
 fallbackChannel=$3
+ap_index=${4:-1} # default to 1
 
-interface=$(get_interface "$device_num")
+interface=$(get_interface "$device_num" "$ap_index")
 
 logger -s -t "DFS-checker" -p "user.warn" "DFS-checker has started. Interface: $interface, channel: $channel, fallback channel: $fallbackChannel"
 
