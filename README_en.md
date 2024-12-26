@@ -56,6 +56,13 @@ Run the command:
 
 To ensure the script runs automatically upon router reboot, configure a Cron job.
 
+By default OpenWrt does not enable the cron service. To start it and enable automatic startup during subsequent reboots, you need to execute the following commands:
+
+```sh
+/etc/init.d/cron start
+/etc/init.d/cron enable
+```
+
 ### Configuration Steps
 
 1. **Edit Cron Jobs**
@@ -100,13 +107,13 @@ Create the configuration file `/etc/logrotate.d/dfs-check` :
 Reboot the router:
 
 ```sh
-    reboot
-    ```
+reboot
+```
 
 Check the log:
 
 ```sh
-    cat /root/dfs-check/dfscheck.log
-    ```
+cat /root/dfs-check/dfscheck.log
+```
 
 By following these steps, the script will automatically run upon router reboot, with logs maintained for management and debugging.

@@ -56,60 +56,67 @@
 
 通过Cron任务设置脚本在路由器重启时自动运行。
 
+默认情况下，OpenWrt 并未启用 cron 服务。要启动它并在后续重启时自动启动，您需要执行以下命令：
+
+```sh
+/etc/init.d/cron start
+/etc/init.d/cron enable
+```
+
 ### 配置步骤
 
 1. **编辑Cron任务**
    
 
 ```sh
-   crontab -e
-   ```
+crontab -e
+```
 
 2. **添加任务**
    在Cron文件中添加：
    
 
 ```sh
-   @reboot /root/dfscheck.sh 0 128 149 1 > /root/dfs-check/dfscheck.log 2>&1 &
-   ```
+@reboot /root/dfscheck.sh 0 128 149 1 > /root/dfs-check/dfscheck.log 2>&1 &
+```
 
 3. **创建日志目录**
    
 
 ```sh
-   mkdir -p /root/dfs-check/
-   chmod 755 /root/dfs-check/
-   ```
+mkdir -p /root/dfs-check/
+chmod 755 /root/dfs-check/
+```
 
 4. **设置日志轮转**
-   创建配置文件 `/etc/logrotate.d/dfs-check` ：
+创建配置文件 `/etc/logrotate.d/dfs-check` ：
    
 
 ```sh
-   /root/dfs-check/dfscheck.log {
-       missingok
-       rotate 3
-       size 1M
-       create 644 root root
-       postrotate
-           /bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
-       endscript
-   }
-   ```
+/root/dfs-check/dfscheck.log {
+      missingok
+      rotate 3
+      size 1M
+      create 644 root root
+      postrotate
+         /bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+      endscript
+}
+```
 
 5. **测试自动运行**
    重启路由器：
    
 
 ```sh
-   reboot
-   ```
+reboot
+```
 
    检查日志：
    
 
 ```sh
-   cat /root/dfs-check/dfscheck.log
-   ```
+cat /root/dfs-check/dfscheck.log
+```
 
 通过上述配置，脚本将在路由器重启后自动运行，并记录日志以供管理。
