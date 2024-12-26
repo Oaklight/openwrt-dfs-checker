@@ -68,3 +68,91 @@ Below is a complete example configuration, assuming you want to monitor and mana
 This command will monitor channel 149 on `radio0` . If channel 149 is disabled due to DFS radar detection, the script will automatically switch to channel 1 and attempt to switch back to channel 149 after 30 minutes.
 
 By using this script, you can better manage DFS channel usage, minimize network downtime caused by radar detections, and enhance overall network stability and reliability.
+
+---
+
+## Setting up a Cron Job to Run the Script on Reboot
+
+To ensure the script runs automatically every time the router reboots, you can add it to a cron job. Here are the detailed steps:
+
+### 1. Edit Cron Jobs
+
+Use the following command to edit the cron jobs:
+
+```sh
+crontab -e
+```
+
+### 2. Add the Cron Job
+
+Add the following line to the cron configuration file:
+
+```sh
+@reboot /usr/bin/nohup /root/dfscheck.sh 0 149 1 1 > /var/log/dfs-check/dfscheck.log 2>&1 &
+```
+
+#### Parameters Explanation:
+
+* `@reboot`: This ensures the task runs every time the system reboots.
+* `/usr/bin/nohup`: Keeps the script running in the background even if the terminal is closed.
+* `> /var/log/dfs-check/dfscheck.log 2>&1`: Redirects the script's output and error logs to `/var/log/dfs-check/dfscheck.log`.
+* `&`: Runs the script in the background.
+
+### 3. Create the Log Directory
+
+Ensure the log directory exists and has the appropriate permissions:
+
+```sh
+mkdir -p /var/log/dfs-check/
+chmod 755 /var/log/dfs-check/
+```
+
+### 4. Set Up Log Rotation
+
+To manage the size and history of the log files, you can use `logrotate` . Here are the configuration steps:
+
+1. Create the `logrotate` configuration file:
+
+```sh
+touch /etc/logrotate.d/dfs-check
+```
+
+2. Edit the `/etc/logrotate.d/dfs-check` file and add the following content:
+
+```sh
+/var/log/dfs-check/dfscheck.log {
+    missingok
+    rotate 3
+    size 1M
+    create 644 root root
+    postrotate
+        /bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+    endscript
+}
+```
+
+#### Parameters Explanation:
+
+* `missingok`: Ignores errors if the log file is missing.
+* `rotate 3`: Keeps 3 archived log files.
+* `size 1M`: Rotates the log file when it reaches 1MB.
+* `create 644 root root`: Creates a new log file with the specified permissions.
+* `postrotate`: Reloads the syslog service after rotation (optional).
+
+### 5. Test the Cron Job
+
+Reboot the router and check if the script is running correctly:
+
+```sh
+reboot
+```
+
+Check the log file to confirm the script has started:
+
+```sh
+cat /var/log/dfs-check/dfscheck.log
+```
+
+---
+
+By following these steps, you can ensure that the `dfscheck.sh` script runs automatically every time the router reboots and manage log files effectively using log rotation. This enhances the script's availability and maintainability.
