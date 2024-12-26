@@ -52,71 +52,86 @@
 * **日志**：日志记录可通过 `logread` 查看。
 * **法律合规**：请确保通道配置符合当地无线频段管理法规。因违规导致的后果由用户自行承担。
 
-## 设置开机自动运行脚本
+## 设置脚本为开机服务
 
-通过Cron任务设置脚本在路由器重启时自动运行。
+为了确保脚本在路由器启动时自动运行，可以通过创建服务的方式来实现。
 
-默认情况下，OpenWrt 并未启用 cron 服务。要启动它并在后续重启时自动启动，您需要执行以下命令：
+### 为什么使用服务而不是Cron？
 
-```sh
-/etc/init.d/cron start
-/etc/init.d/cron enable
-```
+最初尝试了使用Cron来设置脚本开机自启，但由于未知原因，Cron无法正确解析 `@reboot` 指令，导致脚本无法自动运行。使用服务的方式可以避免Cron的解析问题，提供更可靠的解决方案。
 
-### 配置步骤
+### 设置步骤：
 
-1. **编辑Cron任务**
+1. **创建服务脚本**
+
+   在 `/etc/init.d/` 目录下创建一个新文件 `dfscheck` ，内容如下：
+
    
 
 ```sh
-crontab -e
-```
+   #!/bin/sh /etc/rc.common
 
-2. **添加任务**
-   在Cron文件中添加：
+   START=99
+
+   service_start() {
+       logger -t "DFS-checker" "Starting dfscheck.sh"
+       /root/dfscheck.sh 0 128 149 1 >> /var/log/dfscheck.log 2>&1 &
+   }
+
+   start() {
+       service_start
+   }
+
+   stop() {
+       # 如果需要，可以添加停止逻辑
+       logger -t "DFS-checker" "Stopping dfscheck.sh"
+       # 例如：kill $(pidof dfscheck.sh)
+   }
+
+   restart() {
+       stop
+       start
+   }
+   ```
+
+2. **赋予脚本可执行权限**
+
+   运行以下命令，确保服务脚本可执行：
+
    
 
 ```sh
-@reboot /root/dfscheck.sh 0 128 149 1 > /root/dfs-check/dfscheck.log 2>&1 &
-```
+   chmod +x /etc/init.d/dfscheck
+   ```
 
-3. **创建日志目录**
+3. **启用服务**
+
+   运行以下命令，确保服务在开机时自动启动：
+
    
 
 ```sh
-mkdir -p /root/dfs-check/
-chmod 755 /root/dfs-check/
-```
+   /etc/init.d/dfscheck enable
+   ```
 
-4. **设置日志轮转**
-创建配置文件 `/etc/logrotate.d/dfs-check` ：
+4. **启动服务（可选）**
+
+   如果需要立即启动服务，可以运行以下命令：
+
    
 
 ```sh
-/root/dfs-check/dfscheck.log {
-      missingok
-      rotate 3
-      size 1M
-      create 644 root root
-      postrotate
-         /bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
-      endscript
-}
-```
+   /etc/init.d/dfscheck start
+   ```
 
-5. **测试自动运行**
-   重启路由器：
+5. **重启设备**
+
+   最后，重启路由器以确保服务生效：
+
    
 
 ```sh
-reboot
-```
-
-   检查日志：
-   
-
-```sh
-cat /root/dfs-check/dfscheck.log
-```
+   reboot
+   ```
 
 通过上述配置，脚本将在路由器重启后自动运行，并记录日志以供管理。

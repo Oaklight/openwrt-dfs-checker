@@ -52,68 +52,78 @@ Run the command:
 * **Logging**: Logs can be viewed using `logread`.
 * **Legal Compliance**: Ensure channel configuration complies with local wireless spectrum regulations. Users are responsible for any consequences arising from non-compliance.
 
-## Setting Up the Script to Run Automatically on Boot
+## Setting Up the Script as a Service
 
-To ensure the script runs automatically upon router reboot, configure a Cron job.
+To ensure the script runs automatically at startup, create a service in OpenWrt.
 
-By default OpenWrt does not enable the cron service. To start it and enable automatic startup during subsequent reboots, you need to execute the following commands:
+### Why Use a Service Instead of Cron?
 
-```sh
-/etc/init.d/cron start
-/etc/init.d/cron enable
-```
+The cron method was attempted but resulted in parsing errors, preventing the script from running automatically. Using a service ensures the script starts at boot without relying on cron, providing a more reliable solution.
 
-### Configuration Steps
+### Steps:
 
-1. **Edit Cron Jobs**
+1. **Create the Init Script**
 
-```sh
-crontab -e
-```
+   Create a new file `/etc/init.d/dfscheck` with the following content:
 
-2. **Add the Cron Job**
-
-Add the following line to the Cron file:
+   
 
 ```sh
-@reboot /root/dfscheck.sh 0 128 149 1 > /root/dfs-check/dfscheck.log 2>&1 &
-```
+   #!/bin/sh /etc/rc.common
 
-3. **Create the Log Directory**
+   START=99
 
-```sh
-mkdir -p /root/dfs-check/
-chmod 755 /root/dfs-check/
-```
+   service_start() {
+       logger -t "DFS-checker" "Starting dfscheck.sh"
+       /root/dfscheck.sh 0 128 149 1 >> /var/log/dfscheck.log 2>&1 &
+   }
 
-4. **Set up Log Rotation**
+   start() {
+       service_start
+   }
 
-Create the configuration file `/etc/logrotate.d/dfs-check` :
+   stop() {
+       # Add stop logic if needed
+       logger -t "DFS-checker" "Stopping dfscheck.sh"
+       # Example: kill $(pidof dfscheck.sh)
+   }
 
-```sh
-/root/dfs-check/dfscheck.log {
-    missingok
-    rotate 3
-    size 1M
-    create 644 root root
-    postrotate
-        /bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
-    endscript
-}
-```
+   restart() {
+       stop
+       start
+   }
+   ```
 
-5. **Test Automatic Execution**
+2. **Make the Script Executable**
 
-Reboot the router:
-
-```sh
-reboot
-```
-
-Check the log:
+   
 
 ```sh
-cat /root/dfs-check/dfscheck.log
-```
+   chmod +x /etc/init.d/dfscheck
+   ```
+
+3. **Enable the Service**
+
+   
+
+```sh
+   /etc/init.d/dfscheck enable
+   ```
+
+4. **Start the Service (Optional)**
+
+   
+
+```sh
+   /etc/init.d/dfscheck start
+   ```
+
+5. **Reboot the Device**
+
+   
+
+```sh
+   reboot
+   ```
 
 By following these steps, the script will automatically run upon router reboot, with logs maintained for management and debugging.
