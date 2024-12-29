@@ -60,7 +60,6 @@ check_connectivity() {
         return 0
     fi
 
-    logger -s -t "DFS-checker" -p "user.info" "$interface is operating normally."
     return 0
 }
 
