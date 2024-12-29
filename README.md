@@ -62,36 +62,14 @@
 
 ### 设置步骤：
 
-1. **创建服务脚本**
+1. **使用仓库中的服务脚本**
 
-   在 `/etc/init.d/` 目录下创建一个新文件 `dfscheck` ，内容如下：
+   仓库中已包含服务脚本 [ `dfscheck` ](./dfscheck) 。将该文件复制到 `/etc/init.d/` 目录：
 
    
 
 ```sh
-   #!/bin/sh /etc/rc.common
-
-   START=99
-
-   service_start() {
-       logger -t "DFS-checker" "Starting dfscheck.sh"
-       /root/dfscheck.sh 0 128 149 1 >> /var/log/dfscheck.log 2>&1 &
-   }
-
-   start() {
-       service_start
-   }
-
-   stop() {
-       # 如果需要，可以添加停止逻辑
-       logger -t "DFS-checker" "Stopping dfscheck.sh"
-       # 例如：kill $(pidof dfscheck.sh)
-   }
-
-   restart() {
-       stop
-       start
-   }
+   cp ./dfscheck /etc/init.d/dfscheck
    ```
 
 2. **赋予脚本可执行权限**
@@ -114,7 +92,7 @@
    /etc/init.d/dfscheck enable
    ```
 
-4. **启动服务（可选）**
+4. **启动服务（无需重启设备）**
 
    如果需要立即启动服务，可以运行以下命令：
 
@@ -124,9 +102,19 @@
    /etc/init.d/dfscheck start
    ```
 
-5. **重启设备**
+5. **检查服务状态**
 
-   最后，重启路由器以确保服务生效：
+   运行以下命令，检查服务是否正常运行：
+
+   
+
+```sh
+   /etc/init.d/dfscheck status
+   ```
+
+6. **重启设备（可选）**
+
+   如果需要通过重启验证服务是否生效，可以运行以下命令：
 
    
 

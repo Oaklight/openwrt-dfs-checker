@@ -1,6 +1,6 @@
 # OpenWrt DFS Checker
 
-[中文版本](README.md)
+[中文版](README.md)
 
 ## Introduction
 
@@ -62,39 +62,19 @@ The cron method was attempted but resulted in parsing errors, preventing the scr
 
 ### Steps:
 
-1. **Create the Init Script**
+1. **Use the Service Script from the Repository**
 
-   Create a new file `/etc/init.d/dfscheck` with the following content:
+   The repository includes the service script [ `dfscheck` ](./dfscheck). Copy this file to the `/etc/init.d/` directory:
 
    
 
 ```sh
-   #!/bin/sh /etc/rc.common
-
-   START=99
-
-   service_start() {
-       logger -t "DFS-checker" "Starting dfscheck.sh"
-       /root/dfscheck.sh 0 128 149 1 >> /var/log/dfscheck.log 2>&1 &
-   }
-
-   start() {
-       service_start
-   }
-
-   stop() {
-       # Add stop logic if needed
-       logger -t "DFS-checker" "Stopping dfscheck.sh"
-       # Example: kill $(pidof dfscheck.sh)
-   }
-
-   restart() {
-       stop
-       start
-   }
+   cp ./dfscheck /etc/init.d/dfscheck
    ```
 
 2. **Make the Script Executable**
+
+   Run the following command to ensure the service script is executable:
 
    
 
@@ -104,13 +84,17 @@ The cron method was attempted but resulted in parsing errors, preventing the scr
 
 3. **Enable the Service**
 
+   Run the following command to ensure the service starts automatically at boot:
+
    
 
 ```sh
    /etc/init.d/dfscheck enable
    ```
 
-4. **Start the Service (Optional)**
+4. **Start the Service (Without Rebooting)**
+
+   To start the service immediately without rebooting the device, run:
 
    
 
@@ -118,7 +102,19 @@ The cron method was attempted but resulted in parsing errors, preventing the scr
    /etc/init.d/dfscheck start
    ```
 
-5. **Reboot the Device**
+5. **Check the Service Status**
+
+   To verify that the service is running, use the following command:
+
+   
+
+```sh
+   /etc/init.d/dfscheck status
+   ```
+
+6. **Reboot the Device (Optional)**
+
+   If you want to verify that the service starts automatically after a reboot, run:
 
    
 
