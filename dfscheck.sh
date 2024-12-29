@@ -101,6 +101,24 @@ get_random_sleep() {
     echo $((min_sleep + RANDOM % (max_sleep - min_sleep + 1)))
 }
 
+# Function to calculate logarithmic backoff
+calculate_backoff() {
+    local current_sleep=$1
+    local initial_sleep=$2
+    local max_sleep=$3
+
+    # Logarithmic backoff: increase sleep time by log2(current_sleep)
+    local log_increase=$(echo "l($current_sleep)/l(2)" | bc -l | awk '{print int($1)}')
+    current_sleep=$((current_sleep + log_increase))
+
+    # Cap at max_sleep
+    if [ $current_sleep -gt $max_sleep ]; then
+        current_sleep=$max_sleep
+    fi
+
+    echo $current_sleep
+}
+
 # Main loop
 while true; do
     if ! check_connectivity "$interface"; then
@@ -117,11 +135,8 @@ while true; do
         else
             logger -s -t "DFS-checker" -p "user.warn" "Connectivity check failed. Retry $retry_count of $max_retries."
             sleep $current_sleep
-            # Increase the sleep time exponentially, but cap it at max_sleep
-            current_sleep=$((current_sleep * 2))
-            if [ $current_sleep -gt $max_sleep ]; then
-                current_sleep=$max_sleep
-            fi
+            # Calculate logarithmic backoff
+            current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep)
         fi
     else
         logger -s -t "DFS-checker" -p "user.info" "$interface is operating normally."
@@ -130,10 +145,7 @@ while true; do
         sleep $random_sleep
         # Reset retry count on successful connectivity check
         retry_count=0
-        # Increase the sleep time exponentially, but cap it at max_sleep
-        current_sleep=$((current_sleep * 2))
-        if [ $current_sleep -gt $max_sleep ]; then
-            current_sleep=$initial_sleep
-        fi
+        # Calculate logarithmic backoff
+        current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep)
     fi
 done
