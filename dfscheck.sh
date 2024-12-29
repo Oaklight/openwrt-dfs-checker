@@ -11,7 +11,7 @@ get_interface() {
     fi
     local interfaces=$(iw dev | grep -A 1 "$phy" | grep Interface | awk '{print $2}' | sort -t '-' -k3,3n)
     if [ -z "$interfaces" ]; then
-        echo "No interfaces found for PHY $phy."
+        logger -s -t "DFS-checker" -p "user.err" "No interfaces found for PHY $phy."
         exit 1
     fi
     local num_interfaces=$(echo "$interfaces" | wc -l)
@@ -21,7 +21,7 @@ get_interface() {
     fi
     local interface=$(echo "$interfaces" | sed -n "$((ap_index + 1))p")
     if [ -z "$interface" ]; then
-        echo "No interface found for PHY $phy."
+        logger -s -t "DFS-checker" -p "user.err" "No interface found for PHY $phy."
         exit 1
     fi
     echo "$interface"
@@ -36,7 +36,32 @@ switch_channel() {
         logger -s -t "DFS-checker" -p "user.info" "Successfully switched to channel $channel"
     else
         logger -s -t "DFS-checker" -p "user.err" "Failed to switch to channel $channel"
+        return 1
     fi
+}
+
+# Function to check if the wireless interface is operational
+check_connectivity() {
+    local interface=$1
+
+    # Check if the wireless interface exists and is operational
+    if ! iw dev "$interface" info &>/dev/null; then
+        if iw dev "$interface" info 2>&1 | grep -q 'No such device'; then
+            logger -s -t "DFS-checker" -p "user.warn" "$interface does not exist."
+        else
+            logger -s -t "DFS-checker" -p "user.warn" "$interface is down."
+        fi
+        return 1
+    fi
+
+    # Optional: Check if there are associated clients
+    if [ $(iw dev "$interface" station dump | wc -l) -eq 0 ]; then
+        logger -s -t "DFS-checker" -p "user.warn" "No clients associated with $interface."
+        return 0
+    fi
+
+    logger -s -t "DFS-checker" -p "user.info" "$interface is operating normally."
+    return 0
 }
 
 # Validate arguments
@@ -62,17 +87,53 @@ logger -s -t "DFS-checker" -p "user.warn" "DFS-checker has started. Interface: $
 switch_channel "$channel"
 sleep 120 # Wait for normal WiFi startup
 
+# Initialize backoff variables
+initial_sleep=15
+max_sleep=3600 # 1 hour
+current_sleep=$initial_sleep
+max_retries=3
+retry_count=0
+
+# Function to generate a random sleep time within a range
+get_random_sleep() {
+    local min_sleep=$1
+    local max_sleep=$2
+    echo $((min_sleep + RANDOM % (max_sleep - min_sleep + 1)))
+}
+
 # Main loop
 while true; do
-    if iw dev "$interface" info 2>&1 | grep -q 'No such wireless device'; then
-        logger -s -t "DFS-checker" -p "user.warn" "$interface is down, switching to fallback channel $fallbackChannel for 30 minutes."
-        switch_channel "$fallbackChannel"
-        sleep 1800 # Backoff time for radar detection, at least 30 minutes
-        logger -s -t "DFS-checker" -p "user.info" "Switching back to main channel $channel"
-        switch_channel "$channel"
-        sleep 75 # Allow time for initial DFS scan, must be >60 seconds
+    if ! check_connectivity "$interface"; then
+        retry_count=$((retry_count + 1))
+        if [ $retry_count -ge $max_retries ]; then
+            logger -s -t "DFS-checker" -p "user.err" "Max retries reached. Switching to fallback channel $fallbackChannel for 30 minutes."
+            switch_channel "$fallbackChannel"
+            sleep 1800 # Backoff time for radar detection, at least 30 minutes
+            logger -s -t "DFS-checker" -p "user.info" "Switching back to main channel $channel"
+            switch_channel "$channel"
+            sleep 75                     # Allow time for initial DFS scan, must be >60 seconds
+            retry_count=0                # Reset retry count after fallback
+            current_sleep=$initial_sleep # Reset backoff after a failure
+        else
+            logger -s -t "DFS-checker" -p "user.warn" "Connectivity check failed. Retry $retry_count of $max_retries."
+            sleep $current_sleep
+            # Increase the sleep time exponentially, but cap it at max_sleep
+            current_sleep=$((current_sleep * 2))
+            if [ $current_sleep -gt $max_sleep ]; then
+                current_sleep=$max_sleep
+            fi
+        fi
     else
         logger -s -t "DFS-checker" -p "user.info" "$interface is operating normally."
+        # Generate a random sleep time between half of the current sleep time and the full current sleep time
+        random_sleep=$(get_random_sleep $((current_sleep / 2)) $current_sleep)
+        sleep $random_sleep
+        # Reset retry count on successful connectivity check
+        retry_count=0
+        # Increase the sleep time exponentially, but cap it at max_sleep
+        current_sleep=$((current_sleep * 2))
+        if [ $current_sleep -gt $max_sleep ]; then
+            current_sleep=$initial_sleep
+        fi
     fi
-    sleep 15 # Check interval
 done
