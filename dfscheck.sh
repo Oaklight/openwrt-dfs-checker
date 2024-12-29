@@ -97,7 +97,12 @@ retry_count=0
 get_random_sleep() {
     local min_sleep=$1
     local max_sleep=$2
-    echo $((min_sleep + RANDOM % (max_sleep - min_sleep + 1)))
+    # Ensure min_sleep is not greater than max_sleep
+    if [ $min_sleep -gt $max_sleep ]; then
+        min_sleep=$max_sleep
+    fi
+    # Generate a random number within the range [min_sleep, max_sleep]
+    echo $((min_sleep + (RANDOM % (max_sleep - min_sleep + 1))))
 }
 
 # Function to calculate logarithmic backoff
