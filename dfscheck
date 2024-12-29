@@ -1,0 +1,38 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1  # Enable procd for service management
+START=99
+
+# Define the path to the dfscheck.sh script
+DFSCHECK_SCRIPT="/root/dfscheck.sh"
+
+start_service() {
+    logger -t "DFS-checker" "Starting dfscheck.sh"
+    procd_open_instance
+    procd_set_param command "$DFSCHECK_SCRIPT" 0 108 149 1
+    procd_set_param stdout 1  # Redirect stdout to log
+    procd_set_param stderr 1  # Redirect stderr to log
+    procd_set_param respawn  # Automatically restart the service if it crashes
+    procd_close_instance
+}
+
+stop_service() {
+    logger -t "DFS-checker" "Stopping dfscheck.sh"
+    killall dfscheck.sh 2>/dev/null
+}
+
+restart() {
+    stop
+    start
+}
+
+status_service() {
+    local pid=$(pidof dfscheck.sh)
+    if [ -n "$pid" ]; then
+        echo "dfscheck.sh is running with PID $pid."
+        return 0
+    else
+        echo "dfscheck.sh is not running."
+        return 1
+    fi
+}
