@@ -59,18 +59,20 @@ check_connectivity() {
 
 # Validate arguments
 if [ $# -lt 3 ]; then
-    echo "Usage: dfs-checker.sh [device] [channel] [fallback_channel] [ap_index]"
+    echo "Usage: dfs-checker.sh [device] [channel] [fallback_channel] [ap_index] [backoff_type]"
     echo "  device:           Numeric (e.g., 0 corresponds to radio0)"
     echo "  channel:          Main DFS channel to be used"
     echo "  fallback_channel: Secondary channel to be used if main channel is blocked due to DFS detection"
     echo "  ap_index:         Index of the AP interface (default: 1)"
+    echo "  backoff_type:     Type of backoff strategy (linear or exp, default: linear)"
     exit 1
 fi
 
 device_num=$1
 channel=$2
 fallbackChannel=$3
-ap_index=${4:-1} # default to 1
+ap_index=${4:-1}            # default to 1
+backoff_type=${5:-"linear"} # default to linear
 
 interface=$(get_interface "$device_num" "$ap_index")
 
@@ -92,10 +94,19 @@ calculate_backoff() {
     local current_sleep=$1
     local initial_sleep=$2
     local max_sleep=$3
+    local backoff_type=${4:-"linear"} # 默认使用线性退避
 
-    # Logarithmic backoff: increase sleep time by log2(current_sleep)
-    local log_increase=$(echo "l($current_sleep)/l(2)" | bc -l | awk '{print int($1)}')
-    current_sleep=$((current_sleep + log_increase))
+    if [ "$backoff_type" == "linear" ]; then
+        # 固定增量：每次增加30秒
+        current_sleep=$((current_sleep + 30))
+    elif [ "$backoff_type" == "exp" ]; then
+        # 指数退避：0.5 * 1.24^x * initial_sleep
+        local exponent=$(echo "l($current_sleep / $initial_sleep) / l(1.24)" | bc -l | awk '{print int($1)}')
+        current_sleep=$(echo "0.5 * 1.24^$exponent * $initial_sleep" | bc -l | awk '{print int($1)}')
+    else
+        echo "Invalid backoff type. Using linear backoff."
+        current_sleep=$((current_sleep + 30))
+    fi
 
     # Cap at max_sleep
     if [ $current_sleep -gt $max_sleep ]; then
@@ -121,15 +132,15 @@ while true; do
         else
             logger -t "DFS-checker" -p "user.warn" "Connectivity check failed. Retry $retry_count of $max_retries."
             sleep $current_sleep
-            # Calculate logarithmic backoff
-            current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep)
+            # Calculate backoff based on the specified type
+            current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep "$backoff_type")
         fi
     else
         logger -t "DFS-checker" -p "user.info" "$interface is operating normally."
         sleep $current_sleep
         # Reset retry count on successful connectivity check
         retry_count=0
-        # Calculate logarithmic backoff
-        current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep)
+        # Calculate backoff based on the specified type
+        current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep "$backoff_type")
     fi
 done
