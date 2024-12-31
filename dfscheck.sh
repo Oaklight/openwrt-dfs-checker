@@ -42,35 +42,49 @@ switch_channel() {
 
 # Function to check if the wireless interface is operational
 check_connectivity() {
-    local interface=$1
+    local device_num=$1
+    local radio="radio$device_num"
+    local phy=$(uci get wireless.$radio.device 2>/dev/null)
+    if [ -z "$phy" ]; then
+        phy="phy$device_num"
+    fi
 
-    # Check if the wireless device exists
-    if ! iwinfo "$interface" info &>/dev/null; then
-        if iwinfo "$interface" info 2>&1 | grep -q 'No such wireless device'; then
-            logger -t "DFS-checker" -p "user.warn" "$interface does not exist."
-        else
-            logger -t "DFS-checker" -p "user.warn" "$interface is down or inaccessible."
+    # Get all interfaces on the radio
+    local interfaces=$(iw dev | grep -A 1 "$phy" | grep Interface | awk '{print $2}' | sort -t '-' -k3,3n)
+    if [ -z "$interfaces" ]; then
+        logger -t "DFS-checker" -p "user.err" "No interfaces found for PHY $phy."
+        return 1
+    fi
+
+    # Check each interface
+    local operational=false
+    for interface in $interfaces; do
+        # Check if the interface exists
+        if ! iwinfo "$interface" info &>/dev/null; then
+            logger -t "DFS-checker" -p "user.warn" "$interface does not exist or is down."
+            continue
         fi
+
+        # Check if the interface has a valid signal
+        local signal=$(iwinfo "$interface" info | grep 'Signal' | awk '{print $2}')
+        if [ -z "$signal" ] || [ "$signal" == "unknown" ]; then
+            logger -t "DFS-checker" -p "user.warn" "$interface has no signal."
+            continue
+        fi
+
+        # If all checks pass, the interface is operational
+        logger -t "DFS-checker" -p "user.info" "$interface is operating normally."
+        operational=true
+    done
+
+    # Determine radio health
+    if $operational; then
+        logger -t "DFS-checker" -p "user.info" "At least one interface on PHY $phy is operational."
+        return 0
+    else
+        logger -t "DFS-checker" -p "user.err" "No operational interfaces found on PHY $phy."
         return 1
     fi
-
-    # Check if the interface has a valid signal
-    local signal=$(iwinfo "$interface" info | grep 'Signal' | awk '{print $2}')
-    if [ -z "$signal" ] || [ "$signal" == "unknown" ]; then
-        logger -t "DFS-checker" -p "user.warn" "$interface has no signal."
-        return 1
-    fi
-
-    # Check if the interface is transmitting (optional)
-    local tx_power=$(iwinfo "$interface" info | grep 'Tx-Power' | awk '{print $2}')
-    if [ -z "$tx_power" ] || [ "$tx_power" == "unknown" ]; then
-        logger -t "DFS-checker" -p "user.warn" "$interface is not transmitting."
-        return 1
-    fi
-
-    # If all checks pass, the interface is operational
-    logger -t "DFS-checker" -p "user.info" "$interface is operating normally."
-    return 0
 }
 
 # Validate arguments
@@ -134,7 +148,7 @@ calculate_backoff() {
 
 # Main loop
 while true; do
-    if ! check_connectivity "$interface"; then
+    if ! check_connectivity "$device_num"; then
         retry_count=$((retry_count + 1))
         if [ $retry_count -ge $max_retries ]; then
             logger -t "DFS-checker" -p "user.err" "Max retries reached. Switching to fallback channel $fallbackChannel for 30 minutes."
@@ -152,7 +166,7 @@ while true; do
             current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep "$backoff_type")
         fi
     else
-        logger -t "DFS-checker" -p "user.info" "$interface is operating normally."
+        logger -t "DFS-checker" -p "user.info" "Radio $device_num is operating normally."
         sleep $current_sleep
         # Reset retry count on successful connectivity check
         retry_count=0
