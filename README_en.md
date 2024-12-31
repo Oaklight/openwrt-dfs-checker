@@ -6,7 +6,7 @@
 
 This code was originally based on a Reddit post: [DFS Radar Causes 5GHz to Drop and Doesn't Come Back](https://www.reddit.com/r/openwrt/comments/rs9pit/dfs_radar_causes_5ghz_to_drop_and_it_doesnt_come/). I would like to express my gratitude to `u/_daphreak_` and `u/try_harder_later` for their initial efforts and contributions.
 
-I have interactively modified this code using DeepSeek-R1-Lite, and the git history reflects the changes made during the process. I am highly satisfied with the capabilities of DeepSeek-R1-Lite.
+I have interactively modified this code using **DeepSeek-V3** together with **DeepSeek-R1-Lite**, and the git history reflects the changes made during the process. I am highly satisfied with the capabilities of both **DeepSeek-V3** and **DeepSeek-R1-Lite**, which have significantly streamlined the development and optimization of this script.
 
 ## Script Description
 
@@ -17,6 +17,8 @@ The script `dfscheck.sh` is designed to monitor the status of wireless interface
 1. **Channel Switching**: Automatically switches to a fallback channel when the primary DFS channel is disabled due to radar detection, ensuring network connectivity.
 2. **Automatic Recovery**: After switching to the fallback channel, the script attempts to revert to the primary channel after a default period of 30 minutes.
 3. **Monitoring and Logging**: Continuously monitors the wireless interface status and logs significant events for debugging purposes.
+4. **5G Radio and Interface Detection**: Automatically identifies the 5G radio and its interfaces, eliminating the need for manual configuration.
+5. **Configurable Backoff Strategy**: Supports both linear and exponential backoff strategies for retries after connectivity failures.
 
 ### Usage
 
@@ -27,23 +29,21 @@ The script `dfscheck.sh` is designed to monitor the status of wireless interface
 #### Example Command
 
 Assuming the following configuration:
-* Device Number: 0 (corresponds to `radio0`)
-* Primary Channel: 128
+* Primary Channel: 108
 * Fallback Channel: 149
-* AP Index: 1 (corresponds to `ap1`, yes, you should have maybe another hidden SSID for this checker to run)
+* Backoff Type: linear (default)
 
 Run the command:
 
 ```sh
-/root/dfscheck.sh 0 128 149 1
+/root/dfscheck.sh 108 149 linear
 ```
 
 ### Parameter Explanation
 
-* `device`: Wireless device number (e.g., 0 for `radio0`).
-* `channel`: Primary DFS channel.
-* `fallback_channel`: Fallback channel.
-* `ap_index`: AP interface index, default is 1, if not provided it falls back to 0.
+* `channel`: Primary DFS channel (e.g., 108).
+* `fallback_channel`: Fallback channel (e.g., 149).
+* `backoff_type`: (Optional) Type of backoff strategy (`linear` or `exp`). Default is `linear`.
 
 ### Notes
 
@@ -123,3 +123,18 @@ The cron method was attempted but resulted in parsing errors, preventing the scr
    ```
 
 By following these steps, the script will automatically run upon router reboot, with logs maintained for management and debugging.
+
+### Default Values in the Service File
+
+The service file now includes default values for the primary channel ( `108` ), fallback channel ( `149` ), and backoff type ( `linear` ). These values can be customized by modifying the service file or passing arguments when starting the script manually.
+
+---
+
+### Key Updates:
+
+1. **DeepSeek Tools**: The script was interactively modified using **DeepSeek-V3** together with **DeepSeek-R1-Lite**, which significantly improved the development process and script functionality.
+2. **Simplified CLI**: The script now requires only three arguments (`channel`, `fallback_channel`, and `backoff_type`), as it automatically identifies the 5G radio and its interfaces.
+3. **Default Values**: The service file includes default values for the primary channel, fallback channel, and backoff type.
+4. **Improved Documentation**: The README now reflects the latest changes, including the new CLI interface, service file updates, and the use of **DeepSeek-V3** and **DeepSeek-R1-Lite**.
+
+This update ensures the documentation is aligned with the latest script and service file changes, making it easier for users to understand and use the tool.
