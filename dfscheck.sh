@@ -44,16 +44,32 @@ switch_channel() {
 check_connectivity() {
     local interface=$1
 
-    # Check if the wireless interface exists and is operational
-    if ! iw dev "$interface" info &>/dev/null; then
-        if iw dev "$interface" info 2>&1 | grep -q 'No such device'; then
+    # Check if the wireless device exists
+    if ! iwinfo "$interface" info &>/dev/null; then
+        if iwinfo "$interface" info 2>&1 | grep -q 'No such wireless device'; then
             logger -t "DFS-checker" -p "user.warn" "$interface does not exist."
         else
-            logger -t "DFS-checker" -p "user.warn" "$interface is down."
+            logger -t "DFS-checker" -p "user.warn" "$interface is down or inaccessible."
         fi
         return 1
     fi
 
+    # Check if the interface has a valid signal
+    local signal=$(iwinfo "$interface" info | grep 'Signal' | awk '{print $2}')
+    if [ -z "$signal" ] || [ "$signal" == "unknown" ]; then
+        logger -t "DFS-checker" -p "user.warn" "$interface has no signal."
+        return 1
+    fi
+
+    # Check if the interface is transmitting (optional)
+    local tx_power=$(iwinfo "$interface" info | grep 'Tx-Power' | awk '{print $2}')
+    if [ -z "$tx_power" ] || [ "$tx_power" == "unknown" ]; then
+        logger -t "DFS-checker" -p "user.warn" "$interface is not transmitting."
+        return 1
+    fi
+
+    # If all checks pass, the interface is operational
+    logger -t "DFS-checker" -p "user.info" "$interface is operating normally."
     return 0
 }
 
