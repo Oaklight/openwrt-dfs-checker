@@ -260,7 +260,7 @@ while true; do
             current_sleep=$initial_sleep
         fi
     else
-        logger -t "DFS-checker" -p "user.info" "Radio $radio is operating normally."
+        echo "Radio $radio is operating normally."
         sleep $current_sleep
         # Reset retry count on successful connectivity check
         retry_count=0
