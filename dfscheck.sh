@@ -160,7 +160,7 @@ check_connectivity() {
     fi
 
     # If all checks pass, the interface is operational
-    logger -t "DFS-checker" -p "user.info" "$interface is operating normally."
+    echo "$interface is operating normally." # Print to console instead of logging
     return 0
 }
 
@@ -169,13 +169,13 @@ if [ $# -lt 2 ]; then
     echo "Usage: dfs-checker.sh [channel] [fallback_channel] [backoff_type]"
     echo "  channel:          Main DFS channel to be used"
     echo "  fallback_channel: Secondary channel to be used if main channel is blocked due to DFS detection"
-    echo "  backoff_type:     (Optional) Type of backoff strategy (linear or exp, default: linear)"
+    echo "  backoff_type:     (Optional) Type of backoff strategy (linear, exp, or fixed, default: fixed)"
     exit 1
 fi
 
 channel=$1
 fallbackChannel=$2
-backoff_type=${3:-"linear"} # default to linear
+backoff_type=${3:-"fixed"} # default to fixed
 
 # Get the 5GHz radio
 radio=$(get_5g_radio)
@@ -202,7 +202,7 @@ current_sleep=$initial_sleep
 max_retries=3
 retry_count=0
 
-# Function to calculate logarithmic backoff
+# Function to calculate backoff
 calculate_backoff() {
     local current_sleep=$1
     local initial_sleep=$2
@@ -216,6 +216,9 @@ calculate_backoff() {
         # Exponential backoff: 0.5 * 1.24^x * initial_sleep
         local exponent=$(echo "l($current_sleep / $initial_sleep) / l(1.24)" | bc -l | awk '{print int($1)}')
         current_sleep=$(echo "0.5 * 1.24^$exponent * $initial_sleep" | bc -l | awk '{print int($1)}')
+    elif [ "$backoff_type" == "fixed" ]; then
+        # Fixed backoff: always use the initial_sleep value
+        current_sleep=$initial_sleep
     else
         echo "Invalid backoff type. Using linear backoff."
         current_sleep=$((current_sleep + 30))
