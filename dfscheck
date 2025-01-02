@@ -9,7 +9,7 @@ DFSCHECK_SCRIPT="/root/dfscheck.sh"
 # Define default values for channel, fallback_channel, and backoff_type
 DEFAULT_CHANNEL=108
 DEFAULT_FALLBACK_CHANNEL=149
-DEFAULT_BACKOFF_TYPE="linear"
+DEFAULT_BACKOFF_TYPE="fixed"
 
 start_service() {
     logger -t "DFS-checker" "Starting dfscheck.sh"
