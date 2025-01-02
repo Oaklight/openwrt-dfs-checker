@@ -18,7 +18,7 @@ The script `dfscheck.sh` is designed to monitor the status of wireless interface
 2. **Automatic Recovery**: After switching to the fallback channel, the script attempts to revert to the primary channel after a default period of 30 minutes.
 3. **Monitoring and Logging**: Continuously monitors the wireless interface status and logs significant events for debugging purposes.
 4. **5G Radio and Interface Detection**: Automatically identifies the 5G radio and its interfaces, eliminating the need for manual configuration.
-5. **Configurable Backoff Strategy**: Supports both linear and exponential backoff strategies for retries after connectivity failures.
+5. **Configurable Backoff Strategy**: Supports `fixed`,    `linear`, and `exponential` backoff strategies for retries after connectivity failures. The default backoff strategy is `fixed`.
 
 ### Usage
 
@@ -31,25 +31,25 @@ The script `dfscheck.sh` is designed to monitor the status of wireless interface
 Assuming the following configuration:
 * Primary Channel: 108
 * Fallback Channel: 149
-* Backoff Type: linear (default)
+* Backoff Type: fixed (default)
 
 Run the command:
 
 ```sh
-/root/dfscheck.sh 108 149 linear
+/root/dfscheck.sh 108 149 fixed
 ```
 
 ### Parameter Explanation
 
 * `channel`: Primary DFS channel (e.g., 108).
 * `fallback_channel`: Fallback channel (e.g., 149).
-* `backoff_type`: (Optional) Type of backoff strategy (`linear` or `exp`). Default is `linear`.
+* `backoff_type`: (Optional) Type of backoff strategy (`fixed`,    `linear`, or `exp`). Default is `fixed`.
 
 ### Notes
 
 * **Privilege Requirements**: The script must be run with root privileges.
 * **Network Disruption**: Channel switching may cause temporary network disconnection.
-* **Logging**: Logs can be viewed using `logread`.
+* **Logging**: Logs can be viewed using `logread`. Note that the "connection is okay" message is printed to the console and not logged, to prevent log clogs.
 * **Legal Compliance**: Ensure channel configuration complies with local wireless spectrum regulations. Users are responsible for any consequences arising from non-compliance.
 
 ## Setting Up the Script as a Service
@@ -126,15 +126,17 @@ By following these steps, the script will automatically run upon router reboot, 
 
 ### Default Values in the Service File
 
-The service file now includes default values for the primary channel ( `108` ), fallback channel ( `149` ), and backoff type ( `linear` ). These values can be customized by modifying the service file or passing arguments when starting the script manually.
+The service file now includes default values for the primary channel ( `108` ), fallback channel ( `149` ), and backoff type ( `fixed` ). These values can be customized by modifying the service file or passing arguments when starting the script manually.
 
 ---
 
 ### Key Updates:
 
-1. **DeepSeek Tools**: The script was interactively modified using **DeepSeek-V3** together with **DeepSeek-R1-Lite**, which significantly improved the development process and script functionality.
-2. **Simplified CLI**: The script now requires only three arguments (`channel`, `fallback_channel`, and `backoff_type`), as it automatically identifies the 5G radio and its interfaces.
-3. **Default Values**: The service file includes default values for the primary channel, fallback channel, and backoff type.
-4. **Improved Documentation**: The README now reflects the latest changes, including the new CLI interface, service file updates, and the use of **DeepSeek-V3** and **DeepSeek-R1-Lite**.
+1. **Default Backoff Strategy**: The default backoff strategy is now `fixed`, which uses a constant backoff time of 15 seconds.
+2. **Console Output for "Connection is Okay"**: The "connection is okay" message is now printed to the console instead of being logged.
+3. **DeepSeek Tools**: The script was interactively modified using **DeepSeek-V3** together with **DeepSeek-R1-Lite**, which significantly improved the development process and script functionality.
+4. **Simplified CLI**: The script now requires only three arguments (`channel`, `fallback_channel`, and `backoff_type`), as it automatically identifies the 5G radio and its interfaces.
+5. **Default Values**: The service file includes default values for the primary channel, fallback channel, and backoff type.
+6. **Improved Documentation**: The README now reflects the latest changes, including the new CLI interface, service file updates, and the use of **DeepSeek-V3** and **DeepSeek-R1-Lite**.
 
 This update ensures the documentation is aligned with the latest script and service file changes, making it easier for users to understand and use the tool.

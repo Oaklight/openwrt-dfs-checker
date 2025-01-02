@@ -197,6 +197,7 @@ sleep 120 # Wait for normal WiFi startup
 
 # Initialize backoff variables
 initial_sleep=15
+retry_interval=10
 max_sleep=1800 # half hour
 current_sleep=$initial_sleep
 max_retries=3
@@ -254,9 +255,9 @@ while true; do
             current_sleep=$initial_sleep # Reset backoff after a failure
         else
             logger -t "DFS-checker" -p "user.warn" "Connectivity check failed. Retry $retry_count of $max_retries."
-            sleep $current_sleep
-            # Calculate backoff based on the specified type
-            current_sleep=$(calculate_backoff $current_sleep $initial_sleep $max_sleep "$backoff_type")
+            sleep $retry_interval
+            # reset current_sleep
+            current_sleep=$initial_sleep
         fi
     else
         logger -t "DFS-checker" -p "user.info" "Radio $radio is operating normally."
