@@ -1,7 +1,7 @@
 #!/bin/ash
 
 # Function to get the 5GHz radio name
-get_5g_radio() {
+get_5g_radio_from_file() {
     local wireless_config="/etc/config/wireless"
     local in_block=false
     local radio_name=""
@@ -36,6 +36,33 @@ get_5g_radio() {
 
     logger -t "DFS-checker" -p "user.err" "No 5GHz radio found in /etc/config/wireless."
     exit 1
+}
+
+get_5g_radio_from_uci() { # triggered a user.err although it found the radio when test standalone
+    local radio_name=""
+
+    # Use uci to iterate over all wifi-device sections
+    uci -q show wireless | grep 'wireless\.radio[0-9]*=wifi-device' | while read -r line; do
+        # Extract the radio name (e.g., radio0)
+        radio_name=$(echo "$line" | awk -F'[.=]' '{print $2}')
+
+        # Check if the radio is configured for 5GHz
+        band=$(uci -q get "wireless.$radio_name.band")
+        channel=$(uci -q get "wireless.$radio_name.channel")
+
+        if [[ "$band" == "5g" ]]; then
+            echo "$radio_name"
+            return 0
+        elif [[ $channel -ge 36 && $channel -le 64 ]] ||
+            [[ $channel -ge 100 && $channel -le 144 ]] ||
+            [[ $channel -ge 149 && $channel -le 177 ]]; then
+            echo "$radio_name"
+            return 0
+        fi
+    done
+
+    logger -t "DFS-checker" -p "user.err" "No 5GHz radio found in uci."
+    return 1
 }
 
 # Function to switch channel
@@ -178,7 +205,7 @@ fallbackChannel=$2
 backoff_type=${3:-"fixed"} # default to fixed
 
 # Get the 5GHz radio
-radio=$(get_5g_radio)
+radio=$(get_5g_radio_from_file)
 if [ -z "$radio" ]; then
     exit 1
 fi
