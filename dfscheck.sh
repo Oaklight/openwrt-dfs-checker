@@ -174,11 +174,22 @@ validate_channel() {
 get_client_count() {
     local interface=$1
     local client_count=0
+    local last_warn_file="/tmp/dfs_checker_last_warn_$interface"
+    local last_warn_time=0
+
+    # Read the last warning time from the file
+    if [ -f "$last_warn_file" ]; then
+        last_warn_time=$(cat "$last_warn_file")
+    fi
 
     # Use iw command to get client count
     client_count=$(iw dev "$interface" station dump 2>/dev/null | grep -c "Station")
     if [ $? -ne 0 ]; then
-        logger -t "DFS-checker" -p user.warn "Failed to get client count for $interface"
+        local current_time=$(date +%s)
+        if [ $((current_time - last_warn_time)) -gt 300 ]; then # Only log every 5 minutes
+            logger -t "DFS-checker" -p user.warn "Failed to get client count for $interface"
+            echo "$current_time" >"$last_warn_file"
+        fi
         echo 0
         return
     fi
@@ -189,10 +200,20 @@ get_client_count() {
 # Check connectivity and signal strength
 check_connectivity() {
     local interface=$1
+    local last_state_file="/tmp/dfs_checker_last_state_$interface"
+    local last_state=""
+
+    # Read the last state from the file
+    if [ -f "$last_state_file" ]; then
+        last_state=$(cat "$last_state_file")
+    fi
 
     # Basic check: whether interface exists?
     if ! iwinfo "$interface" info &>/dev/null; then
-        logger -t "DFS-checker" -p "user.warn" "$interface does not exist or is down."
+        if [ "$last_state" != "down" ]; then
+            logger -t "DFS-checker" -p "user.warn" "$interface does not exist or is down."
+            echo "down" >"$last_state_file"
+        fi
         return 1
     fi
 
@@ -203,16 +224,25 @@ check_connectivity() {
 
         # Key improvement: whether there is a client connected?
         if [ "$client_count" -gt 0 ]; then
-            logger -t "DFS-checker" -p "user.warn" "$interface: Signal lost with $client_count clients (DFS suspected)."
+            if [ "$last_state" != "signal_lost_with_clients" ]; then
+                logger -t "DFS-checker" -p "user.warn" "$interface: Signal lost with $client_count clients (DFS suspected)."
+                echo "signal_lost_with_clients" >"$last_state_file"
+            fi
             return 1
         else
-            logger -t "DFS-checker" -p "user.info" "$interface: Signal unknown but no clients (normal)."
+            if [ "$last_state" != "signal_unknown_no_clients" ]; then
+                logger -t "DFS-checker" -p "user.info" "$interface: Signal unknown but no clients (normal)."
+                echo "signal_unknown_no_clients" >"$last_state_file"
+            fi
             return 0 # Key changes: if no client is connected, return as normal
         fi
     fi
 
     # Handling normal signal
-    logger -t "DFS-checker" -p "user.info" "$interface: Normal operation (Signal: $signal)."
+    if [ "$last_state" != "normal" ]; then
+        logger -t "DFS-checker" -p "user.info" "$interface: Normal operation (Signal: $signal)."
+        echo "normal" >"$last_state_file"
+    fi
     return 0
 }
 
