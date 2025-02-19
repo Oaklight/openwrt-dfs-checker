@@ -1,5 +1,8 @@
 #!/bin/ash
 
+### Core Configuration Functions ###
+
+# Configure channels option
 configure_channels_option() {
     local radio=$1
     local main_channel=$2
@@ -25,7 +28,9 @@ configure_channels_option() {
     fi
 }
 
-# Function to get the 5GHz radio name
+### Radio/Interface Discovery Functions ###
+
+# Get the 5GHz radio name from the wireless config file
 get_5g_radio_from_file() {
     local wireless_config="/etc/config/wireless"
     local in_block=false
@@ -49,9 +54,7 @@ get_5g_radio_from_file() {
             # Check for 'option channel' within 5GHz ranges
             if [[ "$line" == *option\ channel* ]]; then
                 local channel=$(echo "$line" | awk '{print $3}' | tr -d "'")
-                if [[ $channel -ge 36 && $channel -le 64 ]] ||
-                    [[ $channel -ge 100 && $channel -le 144 ]] ||
-                    [[ $channel -ge 149 && $channel -le 177 ]]; then
+                if validate_channel "$channel"; then
                     echo "$radio_name"
                     return 0
                 fi
@@ -63,7 +66,8 @@ get_5g_radio_from_file() {
     exit 1
 }
 
-get_5g_radio_from_uci() { # triggered a user.err although it found the radio when test standalone
+# Get the 5GHz radio name from UCI
+get_5g_radio_from_uci() {
     local radio_name=""
 
     # Use uci to iterate over all wifi-device sections
@@ -78,9 +82,7 @@ get_5g_radio_from_uci() { # triggered a user.err although it found the radio whe
         if [[ "$band" == "5g" ]]; then
             echo "$radio_name"
             return 0
-        elif [[ $channel -ge 36 && $channel -le 64 ]] ||
-            [[ $channel -ge 100 && $channel -le 144 ]] ||
-            [[ $channel -ge 149 && $channel -le 177 ]]; then
+        elif validate_channel "$channel"; then
             echo "$radio_name"
             return 0
         fi
@@ -90,7 +92,49 @@ get_5g_radio_from_uci() { # triggered a user.err although it found the radio whe
     return 1
 }
 
-# Function to switch channel
+# Get all 5G interfaces on a radio
+get_interfaces() {
+    local radio=$1
+    local interfaces=""
+    local block_index=0
+
+    # Loop through all iwinfo blocks
+    while true; do
+        # Get the current block
+        local block=$(print_iwinfo_block "$block_index")
+        if [ -z "$block" ]; then
+            break # No more blocks
+        fi
+
+        # Extract the interface name from the block
+        local interface=$(echo "$block" | head -n 1 | awk '{print $1}')
+
+        # Extract the channel from the block
+        local channel=$(get_channel_from_block "$block_index")
+
+        # Check if the channel is in the 5GHz range using validate_channel
+        if validate_channel "$channel"; then
+            # Add the interface to the list
+            interfaces="$interfaces $interface"
+        fi
+
+        # Move to the next block
+        block_index=$((block_index + 1))
+    done
+
+    # Check if any 5G interfaces were found
+    if [ -z "$interfaces" ]; then
+        logger -t "DFS-checker" -p "user.err" "No 5G interfaces found for radio $radio."
+        exit 1
+    fi
+
+    # Return the list of 5G interfaces
+    echo "$interfaces" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+
+### Channel Management Functions ###
+
+# Switch channel
 switch_channel() {
     local radio=$1
     local channel=$2
@@ -104,7 +148,77 @@ switch_channel() {
     fi
 }
 
-# Function to print an iwinfo block
+# Validate channel
+validate_channel() {
+    local ch=$1
+    # Check if it's a number
+    if ! echo "$ch" | grep -Eq '^[0-9]+$'; then
+        return 1
+    fi
+
+    # Check if it's a valid 5GHz DFS/non-DFS channel
+    if [ "$ch" -ge 36 ] && [ "$ch" -le 64 ]; then
+        return 0
+    elif [ "$ch" -ge 100 ] && [ "$ch" -le 144 ]; then
+        return 0
+    elif [ "$ch" -ge 149 ] && [ "$ch" -le 177 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+### Connectivity and Signal Check Functions ###
+
+# Get client count
+get_client_count() {
+    local interface=$1
+    local client_count=0
+
+    # Use iw command to get client count
+    client_count=$(iw dev "$interface" station dump 2>/dev/null | grep -c "Station")
+    if [ $? -ne 0 ]; then
+        logger -t "DFS-checker" -p user.warn "Failed to get client count for $interface"
+        echo 0
+        return
+    fi
+
+    echo "$client_count"
+}
+
+# Check connectivity and signal strength
+check_connectivity() {
+    local interface=$1
+
+    # Basic check: whether interface exists?
+    if ! iwinfo "$interface" info &>/dev/null; then
+        logger -t "DFS-checker" -p "user.warn" "$interface does not exist or is down."
+        return 1
+    fi
+
+    # Signal detection logic
+    local signal=$(iwinfo "$interface" info | awk '/Signal/ {print $2}')
+    if [ -z "$signal" ] || [ "$signal" == "unknown" ]; then
+        local client_count=$(get_client_count "$interface")
+
+        # Key improvement: whether there is a client connected?
+        if [ "$client_count" -gt 0 ]; then
+            logger -t "DFS-checker" -p "user.warn" "$interface: Signal lost with $client_count clients (DFS suspected)."
+            return 1
+        else
+            logger -t "DFS-checker" -p "user.info" "$interface: Signal unknown but no clients (normal)."
+            return 0 # Key changes: if no client is connected, return as normal
+        fi
+    fi
+
+    # Handling normal signal
+    logger -t "DFS-checker" -p "user.info" "$interface: Normal operation (Signal: $signal)."
+    return 0
+}
+
+### Utility Functions ###
+
+# Print an iwinfo block
 print_iwinfo_block() {
     local block_index=$1
     local current_index=0
@@ -134,7 +248,7 @@ print_iwinfo_block() {
     done
 }
 
-# Function to get the channel from an iwinfo block
+# Get the channel from an iwinfo block
 get_channel_from_block() {
     local block_index=$1
 
@@ -152,92 +266,37 @@ get_channel_from_block() {
     echo "$channel"
 }
 
-# Function to get all 5G interfaces on a radio
-get_interfaces() {
-    local radio=$1
-    local interfaces=""
-    local block_index=0
+# Calculate backoff time
+calculate_backoff() {
+    local current_sleep=$1
+    local initial_sleep=$2
+    local max_sleep=$3
+    local backoff_type=${4:-"linear"} # default to linear
 
-    # Loop through all iwinfo blocks
-    while true; do
-        # Get the current block
-        local block=$(print_iwinfo_block "$block_index")
-        if [ -z "$block" ]; then
-            break # No more blocks
-        fi
-
-        # Extract the interface name from the block
-        local interface=$(echo "$block" | head -n 1 | awk '{print $1}')
-
-        # Extract the channel from the block
-        local channel=$(get_channel_from_block "$block_index")
-
-        # Check if the channel is in the 5GHz range
-        if [[ $channel -ge 36 && $channel -le 64 ]] ||
-            [[ $channel -ge 100 && $channel -le 144 ]] ||
-            [[ $channel -ge 149 && $channel -le 177 ]]; then
-            # Add the interface to the list
-            interfaces="$interfaces $interface"
-        fi
-
-        # Move to the next block
-        block_index=$((block_index + 1))
-    done
-
-    # Check if any 5G interfaces were found
-    if [ -z "$interfaces" ]; then
-        logger -t "DFS-checker" -p "user.err" "No 5G interfaces found for radio $radio."
-        exit 1
+    if [ "$backoff_type" == "linear" ]; then
+        # Fixed increment: add 30 seconds
+        current_sleep=$((current_sleep + 30))
+    elif [ "$backoff_type" == "exp" ]; then
+        # Exponential backoff: 0.5 * 1.24^x * initial_sleep
+        local exponent=$(echo "l($current_sleep / $initial_sleep) / l(1.24)" | bc -l | awk '{print int($1)}')
+        current_sleep=$(echo "0.5 * 1.24^$exponent * $initial_sleep" | bc -l | awk '{print int($1)}')
+    elif [ "$backoff_type" == "fixed" ]; then
+        # Fixed backoff: always use the initial_sleep value
+        current_sleep=$initial_sleep
+    else
+        echo "Invalid backoff type. Using linear backoff."
+        current_sleep=$((current_sleep + 30))
     fi
 
-    # Return the list of 5G interfaces
-    echo "$interfaces" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'
+    # Cap at max_sleep
+    if [ $current_sleep -gt $max_sleep ]; then
+        current_sleep=$max_sleep
+    fi
+
+    echo $current_sleep
 }
 
-get_client_count() {
-    local interface=$1
-    local client_count=0
-
-    # 使用 iw 命令获取客户端数量
-    client_count=$(iw dev "$interface" station dump 2>/dev/null | grep -c "Station")
-    if [ $? -ne 0 ]; then
-        logger -t "DFS-checker" -p user.warn "Failed to get client count for $interface"
-        echo 0
-        return
-    fi
-
-    echo "$client_count"
-}
-
-# enhanced function to check connectivity and signal strength
-check_connectivity() {
-    local interface=$1
-
-    # basic check: whether interface exist?
-    if ! iwinfo "$interface" info &>/dev/null; then
-        logger -t "DFS-checker" -p "user.warn" "$interface does not exist or is down."
-        return 1
-    fi
-
-    # signal detection logic
-    local signal=$(iwinfo "$interface" info | awk '/Signal/ {print $2}')
-    if [ -z "$signal" ] || [ "$signal" == "unknown" ]; then
-        local client_count=$(get_client_count "$interface")
-
-        # key improvement: whether there is client connected?
-        if [ "$client_count" -gt 0 ]; then
-            logger -t "DFS-checker" -p "user.warn" "$interface: Signal lost with $client_count clients (DFS suspected)."
-            return 1
-        else
-            logger -t "DFS-checker" -p "user.info" "$interface: Signal unknown but no clients (normal)."
-            return 0 # key changes, if no client connected, return as normal
-        fi
-    fi
-
-    # handling normal signal
-    logger -t "DFS-checker" -p "user.info" "$interface: Normal operation (Signal: $signal)."
-    return 0
-}
+### Main Script Logic ###
 
 # Validate arguments
 if [ $# -lt 2 ]; then
@@ -269,26 +328,6 @@ done
 # Remove leading and trailing spaces from fallback channels
 fallback_channels=$(echo "$fallback_channels" | xargs)
 
-# Validate main channel and fallback channels
-validate_channel() {
-    local ch=$1
-    # Check if it's a number
-    if ! echo "$ch" | grep -Eq '^[0-9]+$'; then
-        return 1
-    fi
-
-    # Check if it's a valid 5GHz DFS/non-DFS channel
-    if [ "$ch" -ge 36 ] && [ "$ch" -le 64 ]; then
-        return 0
-    elif [ "$ch" -ge 100 ] && [ "$ch" -le 144 ]; then
-        return 0
-    elif [ "$ch" -ge 149 ] && [ "$ch" -le 177 ]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
 # Validate main channel
 if ! validate_channel $channel; then
     echo "ERROR: Invalid main channel specified, must be a 5GHz DFS/non-DFS channel"
@@ -315,11 +354,8 @@ logger -t "DFS-checker" -p "user.warn" "DFS-checker has started. Radio: $radio, 
 # Configure channels
 configure_channels_option "$radio" "$channel" "$fallback_channels"
 
-# Rest of the script remains unchanged...
-
-# # Set initial channel
-# switch_channel "$radio" "$channel"
-sleep 120 # Wait for normal WiFi startup
+# Wait for normal WiFi startup
+sleep 120
 
 # Initialize backoff variables
 initial_sleep=15
@@ -328,36 +364,6 @@ max_sleep=1800 # half hour
 current_sleep=$initial_sleep
 max_retries=3
 retry_count=0
-
-# Function to calculate backoff
-calculate_backoff() {
-    local current_sleep=$1
-    local initial_sleep=$2
-    local max_sleep=$3
-    local backoff_type=${4:-"linear"} # default to linear
-
-    if [ "$backoff_type" == "linear" ]; then
-        # Fixed increment: add 30 seconds
-        current_sleep=$((current_sleep + 30))
-    elif [ "$backoff_type" == "exp" ]; then
-        # Exponential backoff: 0.5 * 1.24^x * initial_sleep
-        local exponent=$(echo "l($current_sleep / $initial_sleep) / l(1.24)" | bc -l | awk '{print int($1)}')
-        current_sleep=$(echo "0.5 * 1.24^$exponent * $initial_sleep" | bc -l | awk '{print int($1)}')
-    elif [ "$backoff_type" == "fixed" ]; then
-        # Fixed backoff: always use the initial_sleep value
-        current_sleep=$initial_sleep
-    else
-        echo "Invalid backoff type. Using linear backoff."
-        current_sleep=$((current_sleep + 30))
-    fi
-
-    # Cap at max_sleep
-    if [ $current_sleep -gt $max_sleep ]; then
-        current_sleep=$max_sleep
-    fi
-
-    echo $current_sleep
-}
 
 # Get all interfaces on the 5GHz radio
 interfaces=$(get_interfaces "$radio")
@@ -388,7 +394,7 @@ while true; do
         else
             logger -t "DFS-checker" -p "user.warn" "Connectivity check failed. Retry $retry_count of $max_retries."
             sleep $retry_interval
-            # reset current_sleep
+            # Reset current_sleep
             current_sleep=$initial_sleep
         fi
     else
