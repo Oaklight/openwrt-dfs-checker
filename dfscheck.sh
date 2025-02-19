@@ -1,5 +1,30 @@
 #!/bin/ash
 
+configure_channels_option() {
+    local radio=$1
+    local main_channel=$2
+    local fallback_channels="$3" # Fallback channels as a string
+
+    # Check if channels option already exists
+    if ! uci -q get wireless.$radio.channels >/dev/null; then
+        logger -t "DFS-checker" "Automatically configuring option channels for $radio"
+
+        # Set the main channel
+        logger -t "DFS-checker" "Setting $radio channel to $main_channel"
+        uci set wireless.$radio.channel="$main_channel"
+
+        # Set the fallback channels
+        uci set wireless.$radio.channels="$fallback_channels"
+        uci commit wireless
+    else
+        # Append new fallback channels (deduplicate)
+        current_channels=$(uci -q get wireless.$radio.channels)
+        new_channels=$(echo "$current_channels $fallback_channels" | tr ' ' '\n' | awk '!x[$0]++' | tr '\n' ' ')
+        uci set wireless.$radio.channels="$new_channels"
+        uci commit wireless
+    fi
+}
+
 # Function to get the 5GHz radio name
 get_5g_radio_from_file() {
     local wireless_config="/etc/config/wireless"
@@ -169,25 +194,14 @@ get_interfaces() {
     echo "$interfaces" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 
-# 改进版双保险客户端检测函数
 get_client_count() {
     local interface=$1
     local client_count=0
 
-    # 方案1: 优先尝试 ubus 方法
-    if ubus list | grep -q "hostapd.${interface}"; then
-        json_output=$(ubus call "hostapd.${interface}" get_clients 2>/dev/null)
-        if [ $? -eq 0 ]; then
-            client_count=$(echo "$json_output" | jsonfilter -e '@.clients.length' 2>/dev/null || echo 0)
-            echo "$client_count"
-            return
-        fi
-    fi
-
-    # 方案2: 备用 iw 命令解析
+    # 使用 iw 命令获取客户端数量
     client_count=$(iw dev "$interface" station dump 2>/dev/null | grep -c "Station")
     if [ $? -ne 0 ]; then
-        logger -t "DFS-checker" -p "user.warn" "Both ubus and iw failed for $interface"
+        logger -t "DFS-checker" -p user.warn "Failed to get client count for $interface"
         echo 0
         return
     fi
@@ -227,16 +241,67 @@ check_connectivity() {
 
 # Validate arguments
 if [ $# -lt 2 ]; then
-    echo "Usage: dfs-checker.sh [channel] [fallback_channel] [backoff_type]"
+    echo "Usage: dfs-checker.sh [channel] [fallback_channel1] [fallback_channel2] ... [fallback_channelN] [backoff_type]"
     echo "  channel:          Main DFS channel to be used"
-    echo "  fallback_channel: Secondary channel to be used if main channel is blocked due to DFS detection"
+    echo "  fallback_channel: Secondary channel(s) to be used if main channel is blocked due to DFS detection"
     echo "  backoff_type:     (Optional) Type of backoff strategy (linear, exp, or fixed, default: fixed)"
     exit 1
 fi
 
+# Main channel
 channel=$1
-fallbackChannel=$2
-backoff_type=${3:-"fixed"} # default to fixed
+fallback_channels="" # Fallback channels stored as a string
+backoff_type="fixed" # Default backoff strategy
+
+# Parse fallback channels and backoff strategy
+shift 1 # Remove the first argument (main channel)
+while [ $# -gt 0 ]; do
+    if echo "$1" | grep -Eq '^(linear|exp|fixed)$'; then
+        backoff_type=$1 # If the argument is a backoff strategy, assign it and break
+        break
+    else
+        # Append fallback channels to the string
+        fallback_channels="$fallback_channels $1"
+        shift 1
+    fi
+done
+
+# Remove leading and trailing spaces from fallback channels
+fallback_channels=$(echo "$fallback_channels" | xargs)
+
+# Validate main channel and fallback channels
+validate_channel() {
+    local ch=$1
+    # Check if it's a number
+    if ! echo "$ch" | grep -Eq '^[0-9]+$'; then
+        return 1
+    fi
+
+    # Check if it's a valid 5GHz DFS/non-DFS channel
+    if [ "$ch" -ge 36 ] && [ "$ch" -le 64 ]; then
+        return 0
+    elif [ "$ch" -ge 100 ] && [ "$ch" -le 144 ]; then
+        return 0
+    elif [ "$ch" -ge 149 ] && [ "$ch" -le 177 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Validate main channel
+if ! validate_channel $channel; then
+    echo "ERROR: Invalid main channel specified, must be a 5GHz DFS/non-DFS channel"
+    exit 2
+fi
+
+# Validate fallback channels
+for fb_ch in $fallback_channels; do
+    if ! validate_channel $fb_ch; then
+        echo "ERROR: Invalid fallback channel specified: $fb_ch, must be a 5GHz DFS/non-DFS channel"
+        exit 2
+    fi
+done
 
 # Get the 5GHz radio
 radio=$(get_5g_radio_from_file)
@@ -244,16 +309,16 @@ if [ -z "$radio" ]; then
     exit 1
 fi
 
-# Get all interfaces on the 5GHz radio
-interfaces=$(get_interfaces "$radio")
-if [ -z "$interfaces" ]; then
-    exit 1
-fi
+# Log the start of DFS-checker with main and fallback channels
+logger -t "DFS-checker" -p "user.warn" "DFS-checker has started. Radio: $radio, channel: $channel, fallback channels: $fallback_channels"
 
-logger -t "DFS-checker" -p "user.warn" "DFS-checker has started. Radio: $radio, channel: $channel, fallback channel: $fallbackChannel"
+# Configure channels
+configure_channels_option "$radio" "$channel" "$fallback_channels"
 
-# Set initial channel
-switch_channel "$radio" "$channel"
+# Rest of the script remains unchanged...
+
+# # Set initial channel
+# switch_channel "$radio" "$channel"
 sleep 120 # Wait for normal WiFi startup
 
 # Initialize backoff variables
@@ -294,6 +359,12 @@ calculate_backoff() {
     echo $current_sleep
 }
 
+# Get all interfaces on the 5GHz radio
+interfaces=$(get_interfaces "$radio")
+if [ -z "$interfaces" ]; then
+    exit 1
+fi
+
 # Main loop
 while true; do
     operational=false
@@ -306,8 +377,8 @@ while true; do
     if ! $operational; then
         retry_count=$((retry_count + 1))
         if [ $retry_count -ge $max_retries ]; then
-            logger -t "DFS-checker" -p "user.err" "Max retries reached. Switching to fallback channel $fallbackChannel for 30 minutes."
-            switch_channel "$radio" "$fallbackChannel"
+            logger -t "DFS-checker" -p "user.err" "Max retries reached. Switching to fallback channel $fallback_channels for 30 minutes."
+            switch_channel "$radio" "$fallback_channels"
             sleep 1800 # Backoff time for radar detection, at least 30 minutes
             logger -t "DFS-checker" -p "user.info" "Switching back to main channel $channel"
             switch_channel "$radio" "$channel"

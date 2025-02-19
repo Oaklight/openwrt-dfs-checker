@@ -8,13 +8,13 @@ DFSCHECK_SCRIPT="/root/dfscheck.sh"
 
 # Define default values for channel, fallback_channel, and backoff_type
 DEFAULT_CHANNEL=108
-DEFAULT_FALLBACK_CHANNEL=149
-DEFAULT_BACKOFF_TYPE="fixed"
+DEFAULT_FALLBACK_CHANNELS="149 153" # 使用字符串而非数组
 
 start_service() {
-    logger -t "DFS-checker" "Starting dfscheck.sh"
+    logger -t "DFS-checker" "Starting with main channel: $DEFAULT_CHANNEL and fallbacks: $DEFAULT_FALLBACK_CHANNELS"
     procd_open_instance
-    procd_set_param command "$DFSCHECK_SCRIPT" "$DEFAULT_CHANNEL" "$DEFAULT_FALLBACK_CHANNEL" "$DEFAULT_BACKOFF_TYPE"
+    procd_set_param command "$DFSCHECK_SCRIPT" \
+        "$DEFAULT_CHANNEL" $DEFAULT_FALLBACK_CHANNELS "${BACKOFF_TYPE:-fixed}"
     procd_set_param stdout 1 # Redirect stdout to log
     procd_set_param stderr 1 # Redirect stderr to log
     procd_set_param respawn  # Automatically restart the service if it crashes
