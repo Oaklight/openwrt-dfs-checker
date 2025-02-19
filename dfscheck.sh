@@ -169,25 +169,59 @@ get_interfaces() {
     echo "$interfaces" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 
-# Function to check if the wireless interface is operational
+# 改进版双保险客户端检测函数
+get_client_count() {
+    local interface=$1
+    local client_count=0
+
+    # 方案1: 优先尝试 ubus 方法
+    if ubus list | grep -q "hostapd.${interface}"; then
+        json_output=$(ubus call "hostapd.${interface}" get_clients 2>/dev/null)
+        if [ $? -eq 0 ]; then
+            client_count=$(echo "$json_output" | jsonfilter -e '@.clients.length' 2>/dev/null || echo 0)
+            echo "$client_count"
+            return
+        fi
+    fi
+
+    # 方案2: 备用 iw 命令解析
+    client_count=$(iw dev "$interface" station dump 2>/dev/null | grep -c "Station")
+    if [ $? -ne 0 ]; then
+        logger -t "DFS-checker" -p "user.warn" "Both ubus and iw failed for $interface"
+        echo 0
+        return
+    fi
+
+    echo "$client_count"
+}
+
+# enhanced function to check connectivity and signal strength
 check_connectivity() {
     local interface=$1
 
-    # Check if the interface exists
+    # basic check: whether interface exist?
     if ! iwinfo "$interface" info &>/dev/null; then
         logger -t "DFS-checker" -p "user.warn" "$interface does not exist or is down."
         return 1
     fi
 
-    # Check if the interface has a valid signal
-    local signal=$(iwinfo "$interface" info | grep 'Signal' | awk '{print $2}')
+    # signal detection logic
+    local signal=$(iwinfo "$interface" info | awk '/Signal/ {print $2}')
     if [ -z "$signal" ] || [ "$signal" == "unknown" ]; then
-        logger -t "DFS-checker" -p "user.warn" "$interface has no signal."
-        return 1
+        local client_count=$(get_client_count "$interface")
+
+        # key improvement: whether there is client connected?
+        if [ "$client_count" -gt 0 ]; then
+            logger -t "DFS-checker" -p "user.warn" "$interface: Signal lost with $client_count clients (DFS suspected)."
+            return 1
+        else
+            logger -t "DFS-checker" -p "user.info" "$interface: Signal unknown but no clients (normal)."
+            return 0 # key changes, if no client connected, return as normal
+        fi
     fi
 
-    # If all checks pass, the interface is operational
-    echo "$interface is operating normally." # Print to console instead of logging
+    # handling normal signal
+    logger -t "DFS-checker" -p "user.info" "$interface: Normal operation (Signal: $signal)."
     return 0
 }
 
